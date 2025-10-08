@@ -54,11 +54,11 @@ def ask():
         if not question:
             return jsonify({"error": "No question provided"}), 400
 
-        resp = qa_chain.invoke(question)
+        resp = qa_chain.invoke({"query": question})
         answer = resp.get("result", "").strip() or "No answer found."
         return jsonify({"answer": answer})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"[server] {e}"}), 500
 
 # 지식 파일 갱신 시 핫리로드(간단 토큰)
 @app.route("/reload", methods=["POST"])
