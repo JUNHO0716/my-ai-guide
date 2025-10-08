@@ -6,3 +6,5 @@ Flask
 flask-cors
 gunicorn
 tiktoken
+langchain-community
+langchain-chroma
