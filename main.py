@@ -7,42 +7,41 @@ from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_chroma import Chroma
 
-# === 1) 환경 변수 / 기본 설정 ===
+# === 1) 환경 설정 ===
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise RuntimeError("❌ OPENAI_API_KEY가 설정되지 않았습니다. Render 환경변수에 추가하세요.")
 
-# 캐시 디렉토리 설정 (무료 플랜에서도 빠르게)
+# 캐시용 디렉토리
 PERSIST_DIR = "./chroma_cache"
 os.makedirs(PERSIST_DIR, exist_ok=True)
 
-# === 2) 지식 데이터 로드 & 캐싱 ===
+# === 2) 지식 로딩 및 캐싱 ===
 print("[INFO] Initializing knowledge base...")
 loader = TextLoader("내홈페이지정보.txt", encoding="utf-8")
 docs = CharacterTextSplitter(chunk_size=600, chunk_overlap=80).split_documents(loader.load())
 
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-# 캐시 폴더에 임베딩 저장 (속도 향상)
+# 최신 버전에서는 persist() 없이 자동 저장
 db = Chroma.from_documents(docs, embeddings, persist_directory=PERSIST_DIR)
-db.persist()
-
 retriever = db.as_retriever()
+
 print("[INFO] Knowledge base ready ✅")
 
-# === 3) LLM 설정 (응답 시간 제한 20초) ===
+# === 3) LLM (언어모델) 설정 ===
 llm = ChatOpenAI(
-    model_name="gpt-4o-mini",
+    model_name="gpt-4o-mini",       # 빠르고 안정적인 모델
     temperature=0,
     openai_api_key=OPENAI_API_KEY,
-    request_timeout=20
+    request_timeout=20              # 20초 이내 응답 제한
 )
 
 qa_chain = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
 
-# === 4) Flask 서버 ===
+# === 4) Flask 서버 설정 ===
 app = Flask(__name__)
-app.config["JSON_AS_ASCII"] = False  # ✅ 한글 깨짐 방지
+app.config["JSON_AS_ASCII"] = False  # 한글 깨짐 방지
 CORS(app, resources={r"/ask": {"origins": ["https://mathpb.com", "http://localhost:5173", "http://localhost:3000"]}})
 
 @app.route("/health", methods=["GET"])
@@ -58,8 +57,8 @@ def ask():
             return jsonify({"error": "No question provided"}), 400
 
         print(f"[INFO] New question: {question}", flush=True)
-        resp = qa_chain.invoke({"query": question})
-        answer = resp.get("result", "").strip() or "답변을 찾을 수 없습니다."
+        response = qa_chain.invoke({"query": question})
+        answer = response.get("result", "").strip() or "답변을 찾을 수 없습니다."
         print(f"[INFO] Answer generated: {answer}", flush=True)
         return jsonify({"answer": answer})
 
@@ -68,7 +67,7 @@ def ask():
         print("[ERROR]", traceback.format_exc(), flush=True)
         return jsonify({"error": f"[server] {e}"}), 500
 
-# === 5) 관리자용 지식 리로드 엔드포인트 ===
+# === 5) 관리자용 리로드 API ===
 @app.route("/reload", methods=["POST"])
 def reload_knowledge():
     admin_token = os.environ.get("ADMIN_TOKEN", "")

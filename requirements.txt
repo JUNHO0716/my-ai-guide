@@ -1,10 +1,10 @@
 openai
-langchain
-langchain-openai
-chromadb
+langchain==0.3.8
+langchain-openai==0.3.3
+langchain-community==0.3.8
+langchain-chroma==0.2.3
+chromadb==0.5.5
 Flask
 flask-cors
 gunicorn
 tiktoken
-langchain-community
-langchain-chroma
