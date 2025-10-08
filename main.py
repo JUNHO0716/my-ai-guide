@@ -54,10 +54,15 @@ def ask():
         if not question:
             return jsonify({"error": "No question provided"}), 400
 
+        print(f"[INFO] New question: {question}", flush=True)  # ✅ 요청 로그 추가
         resp = qa_chain.invoke({"query": question})
         answer = resp.get("result", "").strip() or "No answer found."
+        print(f"[INFO] Answer generated: {answer}", flush=True)  # ✅ 응답 로그 추가
         return jsonify({"answer": answer})
+
     except Exception as e:
+        import traceback
+        print("[ERROR]", traceback.format_exc(), flush=True)  # ✅ 전체 에러로그 출력
         return jsonify({"error": f"[server] {e}"}), 500
 
 # 지식 파일 갱신 시 핫리로드(간단 토큰)
