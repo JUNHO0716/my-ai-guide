@@ -40,6 +40,7 @@ qa_chain = build_qa_chain()
 
 # === 2) Flask 앱/CORS ===
 app = Flask(__name__)
+app.config["JSON_AS_ASCII"] = False
 CORS(app, resources={r"/ask": {"origins": ["https://mathpb.com", "http://localhost:5173", "http://localhost:3000"]}})
 
 @app.route("/health", methods=["GET"])
