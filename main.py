@@ -33,7 +33,7 @@ def build_qa_chain():
         db = Chroma.from_documents(docs, embeddings)
 
     retriever = db.as_retriever()
-    llm = ChatOpenAI(model_name="gpt-4o", temperature=0, openai_api_key=OPENAI_API_KEY)
+    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0, openai_api_key=OPENAI_API_KEY)
     return RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
 
 qa_chain = build_qa_chain()
