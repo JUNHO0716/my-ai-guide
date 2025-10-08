@@ -7,41 +7,39 @@ from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_chroma import Chroma
 
-# === 1) 환경 설정 ===
+# === 1) 환경변수/기본 설정 ===
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise RuntimeError("❌ OPENAI_API_KEY가 설정되지 않았습니다. Render 환경변수에 추가하세요.")
+    raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다. Render 환경변수에 추가하세요.")
 
-# 캐시용 디렉토리
-PERSIST_DIR = "./chroma_cache"
-os.makedirs(PERSIST_DIR, exist_ok=True)
+# Render 무료 플랜은 컨테이너 재시작 시 디스크가 초기화될 수 있음
+# → 작은 지식 파일은 매번 부팅 시 임베딩 생성(수 초~수십 초)으로 운용하거나,
+#   유료 Persistent Disk를 쓰면 persist_directory로 캐싱 가능.
+PERSIST_DIR = os.environ.get("CHROMA_DIR", None)  # 예: "/data/chroma" (Render Persistent Disk 장착 시)
 
-# === 2) 지식 로딩 및 캐싱 ===
-print("[INFO] Initializing knowledge base...")
-loader = TextLoader("내홈페이지정보.txt", encoding="utf-8")
-docs = CharacterTextSplitter(chunk_size=600, chunk_overlap=80).split_documents(loader.load())
+def build_qa_chain():
+    loader = TextLoader("내홈페이지정보.txt", encoding="utf-8")
+    documents = loader.load()
 
-embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+    text_splitter = CharacterTextSplitter(chunk_size=600, chunk_overlap=80)
+    docs = text_splitter.split_documents(documents)
 
-# 최신 버전에서는 persist() 없이 자동 저장
-db = Chroma.from_documents(docs, embeddings, persist_directory=PERSIST_DIR)
-retriever = db.as_retriever()
+    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-print("[INFO] Knowledge base ready ✅")
+    if PERSIST_DIR:
+        db = Chroma.from_documents(docs, embeddings, persist_directory=PERSIST_DIR)
+        db.persist()
+    else:
+        db = Chroma.from_documents(docs, embeddings)
 
-# === 3) LLM (언어모델) 설정 ===
-llm = ChatOpenAI(
-    model_name="gpt-4o-mini",       # 빠르고 안정적인 모델
-    temperature=0,
-    openai_api_key=OPENAI_API_KEY,
-    request_timeout=20              # 20초 이내 응답 제한
-)
+    retriever = db.as_retriever()
+    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0, openai_api_key=OPENAI_API_KEY)
+    return RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
 
-qa_chain = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
+qa_chain = build_qa_chain()
 
-# === 4) Flask 서버 설정 ===
+# === 2) Flask 앱/CORS ===
 app = Flask(__name__)
-app.config["JSON_AS_ASCII"] = False  # 한글 깨짐 방지
 CORS(app, resources={r"/ask": {"origins": ["https://mathpb.com", "http://localhost:5173", "http://localhost:3000"]}})
 
 @app.route("/health", methods=["GET"])
@@ -57,8 +55,8 @@ def ask():
             return jsonify({"error": "No question provided"}), 400
 
         print(f"[INFO] New question: {question}", flush=True)
-        response = qa_chain.invoke({"query": question})
-        answer = response.get("result", "").strip() or "답변을 찾을 수 없습니다."
+        resp = qa_chain.invoke({"query": question})
+        answer = resp.get("result", "").strip() or "No answer found."
         print(f"[INFO] Answer generated: {answer}", flush=True)
         return jsonify({"answer": answer})
 
@@ -67,7 +65,6 @@ def ask():
         print("[ERROR]", traceback.format_exc(), flush=True)
         return jsonify({"error": f"[server] {e}"}), 500
 
-# === 5) 관리자용 리로드 API ===
 @app.route("/reload", methods=["POST"])
 def reload_knowledge():
     admin_token = os.environ.get("ADMIN_TOKEN", "")
@@ -75,7 +72,7 @@ def reload_knowledge():
     if not admin_token or provided != admin_token:
         return jsonify({"error": "Unauthorized"}), 401
     global qa_chain
-    qa_chain = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
+    qa_chain = build_qa_chain()
     return jsonify({"status": "reloaded"})
 
 if __name__ == "__main__":
